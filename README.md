@@ -6,18 +6,39 @@ pip install longPolling
 
 ## 客户端
 
+### 单向传输
+
 ```python
 import longPolling
 example=longPolling.client.Client(url, callback)
 example.login(uername)
 ```
 
+### 双向传输
+
+```python
+import longPolling
+example=longPolling.client.BothwayClient(url, callback)
+example.login(uername)
+example.send(data)
+```
+
 ## 服务端
+
+### 单向传输
 
 ```python
 import longPolling
 example=longPolling.server.Server(host,port)
-example.send(username,message)auto-download -h
+example.send(username,message)
+```
+
+### 双向传输
+
+```python
+import longPolling
+example=longPolling.server.BothwayServer(host,port,callback)
+example.send(username,message)
 ```
 
 ## 关于作者

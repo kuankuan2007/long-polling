@@ -33,58 +33,66 @@ class Server:
         
         @self.app.route("/<user>/listen",methods=["GET"])
         def main(user):
-            start=time.time()
-            if flask.request.headers.get("checked","0")!="0":
-                del self.messages[user][0]
-            while True:
-                if (user not in self.keys):
-                    return "unregistered",403
-                if (time.time()-start)>=self.timeout:
-                    return "timeout",500
-                if (self.messages.get(user,[])):
-                    return rsa.encrypt(self.messages[user][0],self.keys[user]),200
-                time.sleep(1)
-            
+            return self.main(user)
+        
         @self.app.route("/login",methods=["POST"])
         def doLogin():
-            try:
-                now=json.loads(flask.request.stream.read().decode("utf-8","target"))
-            except:
-                return "decode error",400
-            if (all([i in now for i in ["username","key"]])):
-                if (now["username"] in self.keys):
-                    return "duplicate user name",403
-                self.keys[now["username"]]=rsa.PublicKey.load_pkcs1(now["key"].encode("utf-8"))
-                if (self.loginCallBack):
-                    self.loginCallBack(now["username"])
-                
-                return "succeed",200
-            else:
-                return "insufficient",400
+            return self.doLogin()
+        
         @self.app.route("/logout",methods=["POST"])
         def doLogout():
-            try:
-                now=json.loads(flask.request.stream.read().decode("utf-8","target"))
-            except:
-                return "decode error",400
-            if (all([i in now for i in ["username","key"]])):
-                if (now["username"] not in self.keys):
-                    return "unregistered",400
-                test=_randString()
-                try:
-                    assert rsa.decrypt(rsa.encrypt(test.encode("utf-8"),self.keys[now["username"]]),rsa.PrivateKey.load_pkcs1(now["key"].encode("utf-8")))==test.encode("utf-8")
-                    del self.keys[now["username"]]
-                    if (self.logoutCallBack):
-                        self.logoutCallBack(now["username"])
-                    return "succeed",200
-                except:
-                    return "key error",403
-            else:
-                return "insufficient",400
+            return self.doLogout()
         
         self.logger.info("start server")
         self.thread = threading.Thread(target=self._start,daemon=True)
         self.thread.start()
+    def doLogin(self):
+        try:
+            now=flask.request.json
+            assert type(now)==dict
+        except:
+            return "decode error",400
+        if (all([i in now for i in ["username","key"]])):
+            if (now["username"] in self.keys):
+                return "duplicate user name",403
+            self.keys[now["username"]]=rsa.PublicKey.load_pkcs1(now["key"].encode("utf-8"))
+            if (self.loginCallBack):
+                self.loginCallBack(now["username"])
+            return "succeed",200
+        else:
+            return "insufficient",400
+    def doLogout(self):
+        try:
+            now=flask.request.json
+            assert type(now)==dict
+        except:
+            return "decode error",400
+        if (all([i in now for i in ["username","key"]])):
+            if (now["username"] not in self.keys):
+                return "unregistered",400
+            test=_randString()
+            try:
+                assert rsa.decrypt(rsa.encrypt(test.encode("utf-8"),self.keys[now["username"]]),rsa.PrivateKey.load_pkcs1(now["key"].encode("utf-8")))==test.encode("utf-8")
+                del self.keys[now["username"]]
+                if (self.logoutCallBack):
+                    self.logoutCallBack(now["username"])
+                return "succeed",200
+            except:
+                return "key error",403
+        else:
+            return "insufficient",400
+    def main(self,user):
+        start=time.time()
+        if flask.request.headers.get("checked","0")!="0":
+            del self.messages[user][0]
+        while True:
+            if (user not in self.keys):
+                return "unregistered",403
+            if (time.time()-start)>=self.timeout:
+                return "timeout",500
+            if (self.messages.get(user,[])):
+                return rsa.encrypt(self.messages[user][0],self.keys[user]),200
+            time.sleep(1)
     def _start(self):
         self.app.run(self.host,self.port,threaded=True)
     def send(self,user:str,message:Union[dict,list,bytes])->None:
@@ -98,3 +106,42 @@ class Server:
             self.messages[user]=[]
         self.messages[user].append(message)
         self.logger.info("new message sent to user "+user)
+class BothwayServer(Server):
+    def __init__(self,host:Union[str,None]=None,port:Union[int,None]=None,timeout:int=60,name:str='Server',login:Union[None,Callable[[str],Any]]=None,logout:Union[None,Callable[[str],Any]]=None,receive:Union[None,Callable[[str,bytes],Any]]=None):
+        """
+        :param host:the host to listen on
+        :param port:the port to listen on
+        :param timeout: the number of seconds, it should be same as the timeout in client
+        :param name: the name of the server. it can be changed at any time.
+        :param login: it will be caller after a new user is login successfully
+        :param logout: it will be caller after a user is logout successfully
+        :param receive: it will be caller after receive a message
+        """
+        super().__init__(host,port,timeout,name,login,logout)
+        self.receive=receive
+        @self.app.route("/<user>/send",methods=["POST"])
+        def doListen(user):
+            return self.doListen(user,flask.request.stream.read())
+        self.priKey:Dict[str,rsa.PrivateKey]={}
+    def doListen(self,user:str,data:bytes):
+        try:
+            data=rsa.decrypt(data,self.priKey[user])
+        except:
+            return "keyError",403
+        if (self.receive):
+            self.receive(user,data)
+        return "success"
+    def doLogin(self):
+        retsult=super().doLogin()
+        if(retsult[1]==200):
+            try:
+                now=flask.request.json
+                assert type(now)==dict
+            except:
+                return "decode error",400
+            (public_key, private_key) = rsa.newkeys(512)
+            self.priKey[now["username"]]=private_key
+            return json.dumps({
+                "key":public_key.save_pkcs1().decode("utf-8")
+            }),200
+        return retsult
