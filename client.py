@@ -100,7 +100,7 @@ class BothwayClient(Client):
         if self.key!=None:
             return False
         try:
-            (public_key, private_key) = rsa.newkeys(512)
+            (public_key, private_key) = rsa.newkeys(1024)
             retsult=requests.post(self.host+"/login",json={
                 "username":name,
                 "key": public_key.save_pkcs1().decode("utf-8")
